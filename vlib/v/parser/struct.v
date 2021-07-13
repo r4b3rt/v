@@ -73,6 +73,11 @@ fn (mut p Parser) struct_decl() ast.StructDecl {
 		p.error_with_pos('struct names must have more than one character', name_pos)
 		return ast.StructDecl{}
 	}
+	if name in p.imported_symbols {
+		p.error_with_pos('cannot register struct `$name`, this type was already imported',
+			name_pos)
+		return ast.StructDecl{}
+	}
 	mut orig_name := name
 	if language == .c {
 		name = 'C.$name'
@@ -187,12 +192,7 @@ fn (mut p Parser) struct_decl() ast.StructDecl {
 				// struct embedding
 				type_pos = p.tok.position()
 				typ = p.parse_type()
-				for p.tok.kind == .comment {
-					comments << p.comment()
-					if p.tok.kind == .rcbr {
-						break
-					}
-				}
+				ecomments := p.eat_comments({})
 				type_pos = type_pos.extend(p.prev_tok.position())
 				if !is_on_top {
 					p.error_with_pos('struct embedding must be declared at the beginning of the struct body',
@@ -214,6 +214,7 @@ fn (mut p Parser) struct_decl() ast.StructDecl {
 				embeds << ast.Embed{
 					typ: typ
 					pos: type_pos
+					comments: ecomments
 				}
 			} else {
 				// struct field
@@ -299,6 +300,7 @@ fn (mut p Parser) struct_decl() ast.StructDecl {
 			is_typedef: attrs.contains('typedef')
 			is_union: is_union
 			is_heap: attrs.contains('heap')
+			is_generic: generic_types.len > 0
 			generic_types: generic_types
 			attrs: attrs
 		}
@@ -439,11 +441,29 @@ fn (mut p Parser) interface_decl() ast.InterfaceDecl {
 		p.next()
 	}
 	p.next() // `interface`
+	language := if p.tok.lit == 'C' && p.peek_tok.kind == .dot {
+		ast.Language.c
+	} else if p.tok.lit == 'JS' && p.peek_tok.kind == .dot {
+		ast.Language.js
+	} else {
+		ast.Language.v
+	}
+	if language != .v {
+		p.next() // C || JS
+		p.next() // .
+	}
 	name_pos := p.tok.position()
-	interface_name := p.prepend_mod(p.check_name()).clone()
+	p.check_for_impure_v(language, name_pos)
+	modless_name := p.check_name()
+	interface_name := p.prepend_mod(modless_name).clone()
 	// println('interface decl $interface_name')
 	p.check(.lcbr)
 	pre_comments := p.eat_comments({})
+	if modless_name in p.imported_symbols {
+		p.error_with_pos('cannot register interface `$interface_name`, this type was already imported',
+			name_pos)
+		return ast.InterfaceDecl{}
+	}
 	// Declare the type
 	reg_idx := p.table.register_type_symbol(
 		is_public: is_pub
@@ -470,7 +490,24 @@ fn (mut p Parser) interface_decl() ast.InterfaceDecl {
 	mut methods := []ast.FnDecl{cap: 20}
 	mut is_mut := false
 	mut mut_pos := -1
+	mut ifaces := []ast.InterfaceEmbedding{}
 	for p.tok.kind != .rcbr && p.tok.kind != .eof {
+		if p.tok.kind == .name && p.tok.lit.len > 0 && p.tok.lit[0].is_capital() {
+			iface_pos := p.tok.position()
+			iface_name := p.tok.lit
+			iface_type := p.parse_type()
+			comments := p.eat_comments({})
+			ifaces << ast.InterfaceEmbedding{
+				name: iface_name
+				typ: iface_type
+				pos: iface_pos
+				comments: comments
+			}
+			if p.tok.kind == .rcbr {
+				break
+			}
+			continue
+		}
 		if p.tok.kind == .key_mut {
 			if is_mut {
 				p.error_with_pos('redefinition of `mut` section', p.tok.position())
@@ -485,6 +522,7 @@ fn (mut p Parser) interface_decl() ast.InterfaceDecl {
 			method_start_pos := p.tok.position()
 			line_nr := p.tok.line_nr
 			name := p.check_name()
+
 			if name == 'type_name' {
 				p.error_with_pos('cannot override built-in method `type_name`', method_start_pos)
 				return ast.InterfaceDecl{}
@@ -493,7 +531,7 @@ fn (mut p Parser) interface_decl() ast.InterfaceDecl {
 				p.error_with_pos('duplicate method `$name`', method_start_pos)
 				return ast.InterfaceDecl{}
 			}
-			if util.contains_capital(name) {
+			if language == .v && util.contains_capital(name) {
 				p.error('interface methods cannot contain uppercase letters, use snake_case instead')
 				return ast.InterfaceDecl{}
 			}
@@ -532,6 +570,7 @@ fn (mut p Parser) interface_decl() ast.InterfaceDecl {
 			tmethod := ast.Fn{
 				name: name
 				params: args
+				pos: method.pos
 				return_type: method.return_type
 				is_variadic: is_variadic
 				is_pub: true
@@ -568,18 +607,24 @@ fn (mut p Parser) interface_decl() ast.InterfaceDecl {
 			}
 		}
 	}
+	info.ifaces = ifaces.map(it.typ)
 	ts.info = info
 	p.top_level_statement_end()
 	p.check(.rcbr)
 	pos = pos.extend_with_last_line(p.prev_tok.position(), p.prev_tok.line_nr)
-	return ast.InterfaceDecl{
+	res := ast.InterfaceDecl{
 		name: interface_name
+		language: language
+		typ: typ
 		fields: fields
 		methods: methods
+		ifaces: ifaces
 		is_pub: is_pub
 		pos: pos
 		pre_comments: pre_comments
 		mut_pos: mut_pos
 		name_pos: name_pos
 	}
+	p.table.register_interface(res)
+	return res
 }
