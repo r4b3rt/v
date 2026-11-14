@@ -1,7 +1,9 @@
-// Copyright (c) 2020-2021 Raúl Hernández. All rights reserved.
+// Copyright (c) 2020-2024 Raúl Hernández. All rights reserved.
 // Use of this source code is governed by an MIT license
 // that can be found in the LICENSE file.
 module ui
+
+import os
 
 pub enum KeyCode {
 	null                 = 0
@@ -10,7 +12,6 @@ pub enum KeyCode {
 	escape               = 27
 	space                = 32
 	backspace            = 127
-
 	exclamation          = 33
 	double_quote         = 34
 	hashtag              = 35
@@ -26,7 +27,6 @@ pub enum KeyCode {
 	minus                = 45
 	period               = 46
 	slash                = 47
-
 	_0                   = 48
 	_1                   = 49
 	_2                   = 50
@@ -37,7 +37,6 @@ pub enum KeyCode {
 	_7                   = 55
 	_8                   = 56
 	_9                   = 57
-
 	colon                = 58
 	semicolon            = 59
 	less_than            = 60
@@ -45,7 +44,6 @@ pub enum KeyCode {
 	greater_than         = 62
 	question_mark        = 63
 	at                   = 64
-
 	a                    = 97
 	b                    = 98
 	c                    = 99
@@ -72,30 +70,26 @@ pub enum KeyCode {
 	x                    = 120
 	y                    = 121
 	z                    = 122
-
 	left_square_bracket  = 91
 	backslash            = 92
 	right_square_bracket = 93
 	caret                = 94
 	underscore           = 95
 	backtick             = 96
-
 	left_curly_bracket   = 123
 	vertical_bar         = 124
 	right_curly_bracket  = 125
 	tilde                = 126
-
-    insert               = 260
-    delete               = 261
-    up                   = 262
-    down                 = 263
-    right                = 264
-    left                 = 265
-    page_up              = 266
-    page_down            = 267
-    home                 = 268
-    end                  = 269
-
+	insert               = 260
+	delete               = 261
+	up                   = 262
+	down                 = 263
+	right                = 264
+	left                 = 265
+	page_up              = 266
+	page_down            = 267
+	home                 = 268
+	end                  = 269
 	f1                   = 290
 	f2                   = 291
 	f3                   = 292
@@ -145,46 +139,74 @@ pub enum EventType {
 	mouse_drag
 	mouse_scroll
 	key_down
+	key_up
 	resized
 }
 
-[flag]
+@[flag]
 pub enum Modifiers {
 	ctrl
 	shift
 	alt
 }
 
+struct TerminalCapabilities {
+	enable_ansi256            bool = true
+	supports_alternate_buffer bool = true
+	supports_sgr_mouse        bool = true
+	supports_sync_updates     bool = true
+	supports_window_title     bool = true
+}
+
+fn terminal_capabilities_for(term_name string) TerminalCapabilities {
+	if term_name == 'linux' {
+		return TerminalCapabilities{
+			enable_ansi256:            false
+			supports_alternate_buffer: false
+			supports_sgr_mouse:        false
+			supports_sync_updates:     false
+			supports_window_title:     false
+		}
+	}
+	return TerminalCapabilities{}
+}
+
+fn current_terminal_capabilities() TerminalCapabilities {
+	return terminal_capabilities_for(os.getenv('TERM'))
+}
+
 pub struct Event {
 pub:
-	typ       EventType
-
+	typ EventType
 	// Mouse event info
 	x         int
 	y         int
 	button    MouseButton
 	direction Direction
-
 	// Keyboard event info
 	code      KeyCode
 	modifiers Modifiers
-	ascii     byte
+	ascii     u8
 	utf8      string
-
 	// Resized event info
-	width     int
-	height    int
+	width  int
+	height int
 }
 
 pub struct Context {
 	ExtraContext // contains fields specific to an implementation
 pub:
-	cfg 		  Config
+	cfg Config // the initial configuration, passed to ui.init()
 mut:
-	print_buf     []byte
-	paused        bool
-	enable_su     bool
-	enable_rgb    bool
+	print_buf                 []u8
+	paused                    bool
+	enable_su                 bool
+	enable_rgb                bool
+	enable_ansi256            bool = true
+	supports_alternate_buffer bool = true
+	supports_sgr_mouse        bool = true
+	supports_sync_updates     bool = true
+	supports_window_title     bool = true
 pub mut:
 	frame_count   u64
 	window_width  int
@@ -192,57 +214,55 @@ pub mut:
 }
 
 pub struct Config {
-	user_data            voidptr
-	init_fn              fn(voidptr)
-	frame_fn             fn(voidptr)
-	cleanup_fn           fn(voidptr)
-	event_fn             fn(&Event, voidptr)
-	fail_fn              fn(string)
+pub:
+	user_data  voidptr
+	init_fn    ?fn (voidptr)
+	frame_fn   ?fn (voidptr)
+	cleanup_fn ?fn (voidptr)
+	event_fn   ?fn (&Event, voidptr)
+	fail_fn    ?fn (string)
 
-	buffer_size          int = 256
-	frame_rate           int = 30
-	use_x11              bool
+	buffer_size int = 256
+	frame_rate  int = 30
+	use_x11     bool
 
 	window_title         string
 	hide_cursor          bool
 	capture_events       bool
+	mouse_enabled        bool
 	use_alternate_buffer bool = true
 	skip_init_checks     bool
-	// All kill signals to set up exit listeners on
-	reset                []int = [1, 2, 3, 4, 6, 7, 8, 9, 11, 13, 14, 15, 19]
+	// All kill signals to set up exit listeners on:
+	reset []os.Signal = [.hup, .int, .quit, .ill, .abrt, .bus, .fpe, .kill, .segv, .pipe, .alrm,
+		.term, .stop]
 }
 
-[inline]
+@[inline]
 fn (ctx &Context) init() {
-	if ctx.cfg.init_fn != voidptr(0) {
-		ctx.cfg.init_fn(ctx.cfg.user_data)
-	}
+	f := ctx.cfg.init_fn or { return }
+	f(ctx.cfg.user_data)
 }
 
-[inline]
+@[inline]
 fn (ctx &Context) frame() {
-	if ctx.cfg.frame_fn != voidptr(0) {
-		ctx.cfg.frame_fn(ctx.cfg.user_data)
-	}
+	f := ctx.cfg.frame_fn or { return }
+	f(ctx.cfg.user_data)
 }
 
-[inline]
+@[inline]
 fn (ctx &Context) cleanup() {
-	if ctx.cfg.cleanup_fn != voidptr(0) {
-		ctx.cfg.cleanup_fn(ctx.cfg.user_data)
-	}
+	f := ctx.cfg.cleanup_fn or { return }
+	f(ctx.cfg.user_data)
 }
 
-[inline]
+@[inline]
 fn (ctx &Context) fail(error string) {
-	if ctx.cfg.fail_fn != voidptr(0) {
-		ctx.cfg.fail_fn(error)
-	}
+	f := ctx.cfg.fail_fn or { return }
+	f(error)
 }
 
-[inline]
+@[inline]
 fn (ctx &Context) event(event &Event) {
-	if ctx.cfg.event_fn != voidptr(0) {
-		ctx.cfg.event_fn(event, ctx.cfg.user_data)
-	}
+	f := ctx.cfg.event_fn or { return }
+	f(event, ctx.cfg.user_data)
 }

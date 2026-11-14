@@ -37,6 +37,12 @@ fn main() {
 	//////
 	// /
 	// 123
+	match 0 {
+		0 {
+			0 // comment after an expression inside match
+		}
+		else {}
+	}
 }
 
 fn assign_comments() {
@@ -64,7 +70,7 @@ fn linebreaks_in_ascii_art_block_comments() {
 }
 
 fn map_comments() {
-	mymap := map{
+	mymap := {
 		// pre
 		`:`: 1
 		`!`: 2 // after
@@ -92,4 +98,11 @@ fn ifs_comments_and_empty_lines() {
 	// this is parsed as post_comment of the if but does not really belong there
 	// thereore keep the empty line
 	something_else()
+}
+
+fn call_expr_with_single_line_comment_in_or_expr(arr []int) int {
+	i := arr[0] or {
+		arr.count() // 1
+	}
+	return i
 }

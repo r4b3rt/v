@@ -1,18 +1,15 @@
 // hanoi tower
-const (
-	num = 7
-)
+const num = 7
 
 fn main() {
 	hanoi(num, 'A', 'B', 'C')
 }
 
-fn move(n int, a string, b string) int {
-	println('Disc $n from $a to ${b}...')
-	return 0
+fn move(n int, a string, b string) {
+	println('Disc ${n} from ${a} to ${b}...')
 }
 
-fn hanoi(n int, a string, b string, c string) int {
+fn hanoi(n int, a string, b string, c string) {
 	if n == 1 {
 		move(1, a, c)
 	} else {
@@ -20,5 +17,4 @@ fn hanoi(n int, a string, b string, c string) int {
 		move(n, a, c)
 		hanoi(n - 1, b, a, c)
 	}
-	return 0
 }

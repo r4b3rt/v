@@ -1,6 +1,8 @@
-module http //internal tests have access to *everything in the module*
+// vtest retry: 3
+module http
 
-import json
+// internal tests have access to *everything in the module*
+import json2 as json
 
 struct HttpbinResponseBody {
 	args    map[string]string
@@ -13,9 +15,8 @@ struct HttpbinResponseBody {
 	url     string
 }
 
-
-fn http_fetch_mock(_methods []string, _config FetchConfig) ?[]Response {
-	url := 'https://httpbin.org/'
+fn http_fetch_mock(_methods []string, _config FetchConfig) ![]Response {
+	url := 'https://url4e.com/httpbin/'
 	methods := if _methods.len == 0 { ['GET', 'POST', 'PATCH', 'PUT', 'DELETE'] } else { _methods }
 	mut config := _config
 	mut result := []Response{}
@@ -23,74 +24,72 @@ fn http_fetch_mock(_methods []string, _config FetchConfig) ?[]Response {
 	for method in methods {
 		lmethod := method.to_lower()
 		config.method = method_from_str(method)
-		res := fetch(url + lmethod, config)?
+		res := fetch(FetchConfig{ ...config, url: url + lmethod })!
 		// TODO
-		// body := json.decode(HttpbinResponseBody,res.text)?
+		// body := json.decode[HttpbinResponseBody](res.body)!
 		result << res
 	}
 	return result
 }
 
 fn test_http_fetch_bare() {
-	$if !network ? { return }
-	responses := http_fetch_mock([], FetchConfig{}) or {
-		panic(err)
+	$if !network ? {
+		return
 	}
+	responses := http_fetch_mock([], FetchConfig{}) or { panic(err) }
 	for response in responses {
-		assert response.status_code == 200
+		assert response.status() == .ok
 	}
 }
 
 fn test_http_fetch_with_data() {
-	$if !network ? { return }
-	responses := http_fetch_mock(['POST', 'PUT', 'PATCH', 'DELETE'], {
-		data: 'hello world'
-	}) or {
-		panic(err)
+	$if !network ? {
+		return
 	}
+	responses := http_fetch_mock(['POST', 'PUT', 'PATCH', 'DELETE'],
+		data: 'hello world'
+	) or { panic(err) }
 	for response in responses {
-		payload := json.decode(HttpbinResponseBody,response.text) or {
-			panic(err)
-		}
+		payload := json.decode[HttpbinResponseBody](response.body) or { panic(err) }
 		assert payload.data == 'hello world'
 	}
 }
 
 fn test_http_fetch_with_params() {
-	$if !network ? { return }
-	responses := http_fetch_mock([], {
+	$if !network ? {
+		return
+	}
+	responses := http_fetch_mock([],
 		params: {
-			'a': 'b',
+			'a': 'b'
 			'c': 'd'
 		}
-	}) or {
-		panic(err)
-	}
+	) or { panic(err) }
 	for response in responses {
-		// payload := json.decode(HttpbinResponseBody,response.text) or {
+		// payload := json.decode[HttpbinResponseBody](response.body) or {
 		// panic(err)
 		// }
-		assert response.status_code == 200
+		assert response.status() == .ok
 		// TODO
 		// assert payload.args['a'] == 'b'
 		// assert payload.args['c'] == 'd'
 	}
 }
 
-fn test_http_fetch_with_headers() ? {
-	$if !network ? { return }
-	mut header := new_header()
-	header.add_custom('Test-Header', 'hello world') ?
-	responses := http_fetch_mock([], {
-		header: header
-	}) or {
-		panic(err)
+fn test_http_fetch_with_headers() ! {
+	$if !network ? {
+		return
 	}
+	mut header := new_header()
+	header.add_custom('Test-Header', 'hello world')!
+	responses := http_fetch_mock([],
+		header: header
+	) or { panic(err) }
 	for response in responses {
-		// payload := json.decode(HttpbinResponseBody,response.text) or {
+		// payload := json.decode[HttpbinResponseBody](response.body) or {
 		// panic(err)
 		// }
-		assert response.status_code == 200
+		assert response.status() == .ok
 		// TODO
 		// assert payload.headers['Test-Header'] == 'hello world'
 	}

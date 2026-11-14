@@ -1,4 +1,5 @@
 fn f1(_ string, _ string) {}
+
 fn f2(_ int, _ int) {}
 
 fn main() {
@@ -11,4 +12,5 @@ fn main() {
 	n = '繁體字'
 	n = '한글'
 	n = 'Кириллица'
+	_ = n
 }

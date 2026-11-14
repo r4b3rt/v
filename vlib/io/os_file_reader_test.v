@@ -7,11 +7,11 @@ fn read_file(file string, cap int) []string {
 	defer {
 		f.close()
 	}
-	mut r := io.new_buffered_reader(reader: io.make_reader(f), cap: cap)
+	mut r := io.new_buffered_reader(reader: f, cap: cap)
 	for {
 		l := r.read_line() or { break }
 		lines << l
-		// println('Line: $l')
+		// println('Line: ${l}')
 	}
 	assert lines.len > 0
 	assert r.end_of_stream == true
